@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practical Exam Lookup</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        input, select, button { padding: 10px; margin: 5px; font-size: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Practical Exam Schedule Lookup</h1>
+    <form id="searchForm">
+        <input type="text" id="seatNumber" placeholder="Enter Seat Number" required>
+        <input type="text" id="stream" placeholder="Commerce/Science" required>
+        <button type="submit">Search</button>
+    </form>
+    <div id="result" class="hidden">
+        <h2 id="studentInfo"></h2>
+        <table id="examTable">
+            <thead>
+                <tr>
+                    <th>Batch Code</th>
+                    <th>Subject</th>
+                    <th>Date</th>
+		    		<th> Day</th>
+                    <th>Time</th>
+                    <th>ROOM/LAB</th>
+                </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        let examData = []; // Global data cache
+		let examSchedule = [];
+        // Load Excel on page load
+        async function loadExcel() {
+            try {
+        			const url = 'https://docs.google.com/spreadsheets/d/1YY2NOIeoC2kVMGLODfNzAXBgjKIWkqKS/export?format=xlsx';
+			        const response = await fetch(url);
+        			const data = await response.arrayBuffer();
+        			const workbook = XLSX.read(data, { type: 'array' });
+      		  		console.log('Sheets:', workbook.SheetNames);
+        			const sheet1 = workbook.Sheets[workbook.SheetNames[0]];
+        			const sheet2 = workbook.Sheets[workbook.SheetNames[1]];
+        			examData = XLSX.utils.sheet_to_json(sheet1, { defval: '' });
+        			examSchedule = sheet2? XLSX.utils.sheet_to_json(sheet2, { defval: '' }): [];
+        			console.log('Excel loaded:', examData.length, 'records');
+        			console.log('Excel loaded:', examSchedule.length, 'schedule');
+    		} catch (error) {
+        			console.error(error);
+        			alert('Error loading Excel file. Check URL or sharing permissions.');
+    }
+ }
+
+        // Search on form submit
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+          
+            const seat = document.getElementById('seatNumber').value;
+            const stream = document.getElementById('stream').value.trim().toLowerCase();
+			const seatNo = parseInt(seat.substring(1));
+            console.log(seat.substring(1));
+			
+        	 const studentExams = examData.filter(row =>
+              row['Seat No.']?.trim().toLowerCase() === seat.trim().toLowerCase() && row['Stream Name']?.trim().toLowerCase() === stream
+            );
+			console.log(studentExams.length,'TOTAL DATA');
+			const studentSchedule = examSchedule.filter(r =>{
+				const startSeat = parseInt(r['FROM'].substring(1),10);
+				const endSeat =parseInt(r['TO'].substring(1),10);
+				return (r['STREAM']?.trim().toLowerCase() === stream && seatNo >= startSeat && seatNo <= endSeat);
+			});
+
+			console.log(studentSchedule.length,'TOTAL time');
+			console.log(studentExams,'Student table');
+			console.log(studentSchedule,'Schedule table');
+
+			
+            if (studentExams.length === 0) {
+                alert('No student found for this seat number and stream.');
+                return;
+            }
+			const studentExam = studentExams[0]
+			console.log(studentExam,'STUDENT FOUND');
+			const validStudentSubjects = [];
+            for (let i = 1; i <= 9; i++) {
+                const subName = studentExam[`sub${i}name`];
+                if (subName && subName.trim() !== '' && subName.trim().toUpperCase() !== 'EXEMPTED') {
+                    validStudentSubjects.push(subName.trim());
+                }
+            }
+            console.log('Valid student subjects:', validStudentSubjects);
+			const validSchedule = studentSchedule.filter(schedule => 
+                validStudentSubjects.includes(schedule['SUBJECT']?.trim())
+            );
+            
+             console.log('Final valid schedule:', validSchedule.length);
+			const studentName = studentExams[0]['Student Name'];
+            console.log(studentName,'sTUDENT NAME');
+            document.getElementById('studentInfo').textContent = `Student: ${studentName.trim().toUpperCase()} (Stream: ${stream.toUpperCase()})`;
+
+            const tbody = document.querySelector('#examTable tbody');
+            tbody.innerHTML = '';
+
+			if(validSchedule.lenght ===0){
+				 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;">No exams scheduled for this student\'s valid subjects.</td></tr>';
+			}else{
+            validSchedule.forEach(exam => {
+				 if (exam.DATE && !isNaN(exam.DATE)) {
+        			exam.DATE = sheetsSerialToDate(parseFloat(exam.DATE)).toLocaleDateString('en-IN');
+    			}
+				
+                const row = tbody.insertRow();
+                row.innerHTML = `
+						<td>${exam.BATCH || studentExam['Stream Name'] || ''}</td>
+                        <td>${exam.SUBJECT || ''}</td>
+                        <td>${exam.DATE || 'TBA'}</td>
+                        <td>${exam.DAY || 'TBA'}</td>
+                        <td>${exam.TIME || 'TBA'}</td>
+                        <td>${exam.VENUE || 'TBA'}</td>
+                `;
+            });
+			}
+            document.getElementById('result').classList.remove('hidden');
+        });
+
+		// Add this helper function
+		function sheetsSerialToDate(serial) {
+    		const utc_days = Math.floor(serial - 25569);
+    		const utc_value = utc_days * 86400;
+    		const date_info = new Date(utc_value * 1000);
+   			const fractional_day = serial - Math.floor(serial) + 0.0000001;
+    		let total_seconds = Math.floor(date_info.getTime() / 1000);
+    		total_seconds += fractional_day * 86400;
+    		return new Date(total_seconds * 1000);
+		}
+        // Load data on page load
+        window.onload = loadExcel;
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
